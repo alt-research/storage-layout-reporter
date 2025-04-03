@@ -69,6 +69,77 @@ Then run:
 make storage-report
 ```
 
+### CI Integration to Detect Storage Layout Changes
+
+You can integrate storage layout verification into your CI/CD pipeline to detect unintended storage layout changes between branches:
+
+```yaml
+name: Storage Report
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  check:
+    strategy:
+      fail-fast: true
+
+    name: Foundry project
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Detect storage layout changes
+        run: |
+          # Set directories for reports
+          PR_DIR="pr"
+          TARGET_DIR="target"
+
+          # Generate storage report for the current PR branch
+          echo "Generating storage layout report for the PR branch..."
+          ./lib/storage-layout-reporter/report.sh --output=$PR_DIR --source="src" --exclude="src/interfaces"
+
+          # Fetch and check out the target branch
+          echo "Fetching and checking out the target branch..."
+          git fetch origin $TARGET
+          git checkout $TARGET
+
+          # Generate storage report for the target branch
+          echo "Generating storage layout report for the target branch..."
+          ./lib/storage-layout-reporter/report.sh --output=$TARGET_DIR --source="src" --exclude="src/interfaces"
+
+          # Compare the storage layouts of the PR and target branches
+          echo "Comparing storage layouts..."
+          if diff --unified $PR_DIR $TARGET_DIR; then
+            echo "No differences found in storage layouts."
+          else
+            echo "::error::Storage layout changes detected. Review changes carefully as they may impact contract upgrades."
+            exit 1
+          fi
+        env:
+          TARGET: ${{ github.event.pull_request.base.sha }}
+```
+
+This workflow automatically:
+
+1. Generates storage layout reports for both the PR and target branches
+2. Performs a differential analysis to identify any storage layout modifications
+3. Fails the CI pipeline if incompatible storage changes are detected
+
+This approach is critical for maintaining storage compatibility in upgradeable contract systems and preventing deployment failures due to incompatible storage layouts.
+
+> **Note**: If storage layout changes are intentional (e.g., during initial development or when implementing a planned contract upgrade), you can modify the workflow to ignore specific changes.
+
 ## Output
 
 The script creates one text file per contract:
